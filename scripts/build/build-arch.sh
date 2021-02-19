@@ -15,6 +15,7 @@ usage()
     echo "  --abi-tag <package>           The python abi tag to build"
     echo "  --disable-tests               Disable automatic unittests"
     echo "  --drop-to-shell               Drop into an interactive bash inside the container for debugging purposes"
+    echo "  --test-only <pip-install_str> Does a pip install <pip-install_str> and then runs the tests against the installed pypylon."
     echo "  -h                            This usage help"
 }
 
@@ -24,6 +25,7 @@ PYLON_TGZ_DIR=""
 PYLON_DIR=""
 DISABLE_TESTS=""
 DROP_TO_SHELL=""
+TEST_ONLY_INSTALL_STR=""
 
 while [ $# -gt 0 ]; do
     arg="$1"
@@ -33,6 +35,7 @@ while [ $# -gt 0 ]; do
         --abi-tag) ABI_TAG="$2" ; shift ;;
         --disable-tests) DISABLE_TESTS=1 ;;
         --drop-to-shell) DROP_TO_SHELL=1 ;;
+        --test-only) TEST_ONLY_INSTALL_STR="$2"; shift ;;
         -h|--help) usage ; exit 1 ;;
         *)         echo "Unknown argument $arg" ; usage ; exit 1 ;;
     esac
@@ -101,31 +104,40 @@ case $PLATFORM_TAG in
     exit 1
 esac
 
+#if test only is set, pylon is not needed
+if [ -z "$TEST_ONLY_INSTALL_STR" ]; then
+    if [ -z "$PYLON_DIR" ]; then
+        echo "pylon-dir must be given"
+        exit 1
+    fi
 
-if [ -z "$PYLON_DIR" ]; then
-    echo "pylon-dir must be given"
-    exit 1
-fi
-
-#test for pylon 6.1
-files=( $PYLON_DIR/pylon_*_${PYLON_ARCH}_setup.tar.gz )
-PYLON="${files[0]}"
-
-#fallback to pre 6.1 naming
-if [ ! -f "$PYLON" ]; then
-    files=( $PYLON_DIR/pylon-*-$PYLON_ARCH.tar.gz )
+    #test for pylon 6.1
+    files=( $PYLON_DIR/pylon_*_${PYLON_ARCH}_setup.tar.gz )
     PYLON="${files[0]}"
 
-    #special case for pylon 5.x where aarch64 was named arm64
-    if [ ! -f "$PYLON" -a $PYLON_ARCH == "aarch64" ]; then
-        files=( $PYLON_DIR/pylon-*-arm64.tar.gz )
+    #fallback to pre 6.1 naming
+    if [ ! -f "$PYLON" ]; then
+        files=( $PYLON_DIR/pylon-*-$PYLON_ARCH.tar.gz )
         PYLON="${files[0]}"
-    fi
-fi
 
-if [ ! -f "$PYLON" ]; then
-    echo "Couldn't find pylon installer in $PYLON_DIR"
-    exit 1
+        #special case for pylon 5.x where aarch64 was named arm64
+        if [ ! -f "$PYLON" -a $PYLON_ARCH == "aarch64" ]; then
+            files=( $PYLON_DIR/pylon-*-arm64.tar.gz )
+            PYLON="${files[0]}"
+        fi
+    fi
+
+    if [ ! -f "$PYLON" ]; then
+        echo "Couldn't find pylon installer in $PYLON_DIR"
+        exit 1
+    fi
+
+    #make path absolute
+    PYLON_TGZ=$(readlink -m "$PYLON" || true)
+
+    #strip basedir from filename
+    #this allows us to easiliy mount the tgz to a given destination inside the container
+    PYLON_TGZ_BASE=$(basename $PYLON_TGZ)
 fi
 
 DOCKER_TAG="pypylon-$PLATFORM_TAG-$(date +%s)"
@@ -136,26 +148,22 @@ docker build --network host \
                 --tag "$DOCKER_TAG" - < $THISDIR/Dockerfile.$BUILD_DISTRO
 
 
-#make path absolute
-PYLON_TGZ=$(readlink -m "$PYLON" || true)
+if [ -n "$TEST_ONLY_INSTALL_STR" ]; then
+    COMMAND="/work/scripts/build/test-only.sh --python $PYTHON $TEST_ONLY_INSTALL_STR"
+else
+    COMMAND="/work/scripts/build/build.sh --pylon-tgz /$PYLON_TGZ_BASE --python $PYTHON"
+    if [ -n "$DISABLE_TESTS" ]; then
+        COMMAND="$COMMAND --disable-tests"
+    fi
 
-#strip basedir from filename
-#this allows us to easiliy mount the tgz to a given destination inside the container
-PYLON_TGZ_BASE=$(basename $PYLON_TGZ)
-
-
-ARGS=""
-if [ -n "$DISABLE_TESTS" ]; then
-    ARGS="$ARGS --disable-tests"
-fi
-
-if [[ $PLATFORM_TAG =~ manylinux* ]]; then
-    ARGS="$ARGS --update-platform-tag $PLATFORM_TAG"
+    if [[ $PLATFORM_TAG =~ manylinux* ]]; then
+        COMMAND="$COMMAND --update-platform-tag $PLATFORM_TAG"
+    fi
 fi
 
 if [ -z "$DROP_TO_SHELL" ]; then 
-    docker run -v "$BASEDIR:/work" -v "$PYLON_TGZ:/$PYLON_TGZ_BASE" --user $(id -u) $DOCKER_TAG  /work/scripts/build/build.sh --pylon-tgz "/$PYLON_TGZ_BASE" --python "$PYTHON" $ARGS
+    docker run -v "$BASEDIR:/work" -v "$PYLON_TGZ:/$PYLON_TGZ_BASE" --user $(id -u) $DOCKER_TAG $COMMAND
 else
-    MSG="In a normal build this script would run: /work/scripts/build/build.sh --pylon-tgz \"/$PYLON_TGZ_BASE\" --python \"$PYTHON\" $ARGS"
+    MSG="In a normal build this script would run: $COMMAND"
     exec docker run -ti -v "$BASEDIR:/work" -v "$PYLON_TGZ:/$PYLON_TGZ_BASE" --user $(id -u) $DOCKER_TAG bash -c "echo '$MSG'; exec bash"
 fi

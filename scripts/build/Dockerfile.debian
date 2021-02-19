@@ -29,6 +29,7 @@ RUN mkdir /build && \
 # numpy is required for the pypylon unittests
 # currently disabled because the numpy install exceeds the current travis max duration
 # RUN pip install numpy
+RUN pip install 'pip>=20.3'
 
 # one genicam unittest requires a french locale
 # patchelf, unzip are needed for auditwheel
