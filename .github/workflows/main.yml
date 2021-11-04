@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        a: [cp36m, cp37m, cp38, cp39]
+        a: [cp36m, cp37m, cp38, cp39, cp3_10]
         p: [manylinux_2_24_x86_64, manylinux_2_24_aarch64, manylinux_2_24_armv7l]
 
         include:
