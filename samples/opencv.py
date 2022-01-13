@@ -10,7 +10,7 @@ import cv2
 camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
 
 # Grabing Continusely (video) with minimal delay
-camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly) 
+camera.StartGrabbing(pylon.GrabStrategy_OneByOne,pylon.GrabLoop_ProvidedByUser) 
 converter = pylon.ImageFormatConverter()
 
 # converting to opencv bgr format
