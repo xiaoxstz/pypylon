@@ -7,29 +7,25 @@ from pypylon import pylon
 
 import time
 
-
-def getkey():
-    return input("Enter \"t\" to trigger the camera or \"e\" to exit and press enter? (t/e) ")
+frame_counter = 0
+current_max_rate = 156
+time_last = 3
+frame_count = current_max_rate * time_last
+bExit = False
 
 
 # Example of an image event handler.
 class SampleImageEventHandler(pylon.ImageEventHandler):
     def OnImageGrabbed(self, camera, grabResult):
-        print("CSampleImageEventHandler::OnImageGrabbed called.")
-        print()
-        print()
-
+        global frame_counter,bExit
+        frame_counter +=1
+        if frame_counter >= frame_count - 1:
+            bExit = True
 
 if __name__ == '__main__':
     try:
         # Create an instant camera object for the camera device found first.
         camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
-
-        # Register the standard configuration event handler for enabling software triggering.
-        # The software trigger configuration handler replaces the default configuration
-        # as all currently registered configuration handlers are removed by setting the registration mode to RegistrationMode_ReplaceAll.
-        camera.RegisterConfiguration(pylon.SoftwareTriggerConfiguration(), pylon.RegistrationMode_ReplaceAll,
-                                     pylon.Cleanup_Delete)
 
         # For demonstration purposes only, register another image event handler.
         camera.RegisterImageEventHandler(SampleImageEventHandler(), pylon.RegistrationMode_Append, pylon.Cleanup_Delete)
@@ -39,18 +35,14 @@ if __name__ == '__main__':
         # The GrabStrategy_OneByOne default grab strategy is used.
         camera.StartGrabbing(pylon.GrabStrategy_OneByOne, pylon.GrabLoop_ProvidedByInstantCamera)
 
+        time_start = time.time()
         # Wait for user input to trigger the camera or exit the program.
         # The grabbing is stopped, the device is closed and destroyed automatically when the camera object goes out of scope.
-        while True:
-            time.sleep(0.05)
-            key = getkey()
-            print(key)
-            if (key == 't' or key == 'T'):
-                # Execute the software trigger. Wait up to 100 ms for the camera to be ready for trigger.
-                if camera.WaitForFrameTriggerReady(100, pylon.TimeoutHandling_ThrowException):
-                    camera.ExecuteSoftwareTrigger();
-            if (key == 'e') or (key == 'E'):
-                break
+        while not bExit:
+            pass
+        time_cost = time.time() - time_start
+        print(f"{frame_count} frame cost:{time_cost} s")
+        camera.StopGrabbing()
     except genicam.GenericException as e:
         # Error handling.
         print("An exception occurred.", e.GetDescription())
